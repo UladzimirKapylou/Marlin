@@ -1,68 +1,52 @@
-/* **************************************************************************
-
- Marlin 3D Printer Firmware
- Copyright (C) 2016 MarlinFirmware [https://github.com/MarlinFirmware/Marlin]
-
- Copyright (c) 2016 Bob Cousins bobcousins42@googlemail.com
-
- This program is free software: you can redistribute it and/or modify
- it under the terms of the GNU General Public License as published by
- the Free Software Foundation, either version 3 of the License, or
- (at your option) any later version.
-
- This program is distributed in the hope that it will be useful,
- but WITHOUT ANY WARRANTY; without even the implied warranty of
- MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- GNU General Public License for more details.
-
- You should have received a copy of the GNU General Public License
- along with this program.  If not, see <http://www.gnu.org/licenses/>.
-****************************************************************************/
-
 /**
- * Description: HAL for AVR
+ * Marlin 3D Printer Firmware
+ * Copyright (c) 2019 MarlinFirmware [https://github.com/MarlinFirmware/Marlin]
+ * Copyright (c) 2016 Bob Cousins bobcousins42@googlemail.com
  *
- * For __AVR__
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
+#pragma once
 
+#include "../shared/Marduino.h"
+#include "../shared/HAL_SPI.h"
+#include "fastio.h"
+#include "watchdog.h"
+#include "math.h"
 
-#ifndef _HAL_AVR_H_
-#define _HAL_AVR_H_
-
-// --------------------------------------------------------------------------
-// Includes
-// --------------------------------------------------------------------------
+#ifdef USBCON
+  #include "HardwareSerial.h"
+#else
+  #define HardwareSerial_h // Hack to prevent HardwareSerial.h header inclusion
+  #include "MarlinSerial.h"
+#endif
 
 #include <stdint.h>
-
-#include <Arduino.h>
-
 #include <util/delay.h>
 #include <avr/eeprom.h>
 #include <avr/pgmspace.h>
 #include <avr/interrupt.h>
 #include <avr/io.h>
 
-#include "../HAL_SPI.h"
-#include "fastio_AVR.h"
-#include "watchdog_AVR.h"
-#include "math_AVR.h"
-
-#ifdef USBCON
-  #include "HardwareSerial.h"
-#else
-  #include "MarlinSerial.h"
-#endif
-
-// --------------------------------------------------------------------------
+// ------------------------
 // Defines
-// --------------------------------------------------------------------------
+// ------------------------
 
 //#define analogInputToDigitalPin(IO) IO
 
 #ifndef CRITICAL_SECTION_START
-  #define CRITICAL_SECTION_START  unsigned char _sreg = SREG; cli();
-  #define CRITICAL_SECTION_END    SREG = _sreg;
+  #define CRITICAL_SECTION_START  unsigned char _sreg = SREG; cli()
+  #define CRITICAL_SECTION_END    SREG = _sreg
 #endif
 #define ISRS_ENABLED() TEST(SREG, SREG_I)
 #define ENABLE_ISRS()  sei()
@@ -71,75 +55,88 @@
 // On AVR this is in math.h?
 //#define square(x) ((x)*(x))
 
-// --------------------------------------------------------------------------
+// ------------------------
 // Types
-// --------------------------------------------------------------------------
+// ------------------------
 
 typedef uint16_t hal_timer_t;
 #define HAL_TIMER_TYPE_MAX 0xFFFF
 
 typedef int8_t pin_t;
 
+#define SHARED_SERVOS HAS_SERVOS
 #define HAL_SERVO_LIB Servo
 
-// --------------------------------------------------------------------------
+// ------------------------
 // Public Variables
-// --------------------------------------------------------------------------
+// ------------------------
 
 //extern uint8_t MCUSR;
 
-#define NUM_SERIAL 1
-
+// Serial ports
 #ifdef USBCON
   #if ENABLED(BLUETOOTH)
     #define MYSERIAL0 bluetoothSerial
   #else
     #define MYSERIAL0 Serial
   #endif
+  #define NUM_SERIAL 1
 #else
-  #define MYSERIAL0 customizedSerial
+  #if !WITHIN(SERIAL_PORT, -1, 3)
+    #error "SERIAL_PORT must be from -1 to 3"
+  #endif
+
+  #define MYSERIAL0 customizedSerial1
+
+  #ifdef SERIAL_PORT_2
+    #if !WITHIN(SERIAL_PORT_2, -1, 3)
+      #error "SERIAL_PORT_2 must be from -1 to 3"
+    #elif SERIAL_PORT_2 == SERIAL_PORT
+      #error "SERIAL_PORT_2 must be different than SERIAL_PORT"
+    #endif
+    #define NUM_SERIAL 2
+    #define MYSERIAL1 customizedSerial2
+  #else
+    #define NUM_SERIAL 1
+  #endif
 #endif
 
-// --------------------------------------------------------------------------
+// ------------------------
 // Public functions
-// --------------------------------------------------------------------------
+// ------------------------
 
-//void cli(void);
+void HAL_init();
+
+//void cli();
 
 //void _delay_ms(const int delay);
 
-inline void HAL_clear_reset_source(void) { MCUSR = 0; }
-inline uint8_t HAL_get_reset_source(void) { return MCUSR; }
+inline void HAL_clear_reset_source() { MCUSR = 0; }
+inline uint8_t HAL_get_reset_source() { return MCUSR; }
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-function"
 extern "C" {
-  int freeMemory(void);
+  int freeMemory();
 }
-
-// eeprom
-//void eeprom_write_byte(unsigned char *pos, unsigned char value);
-//unsigned char eeprom_read_byte(unsigned char *pos);
+#pragma GCC diagnostic pop
 
 // timers
 #define HAL_TIMER_RATE          ((F_CPU) / 8)    // i.e., 2MHz or 2.5MHz
 
 #define STEP_TIMER_NUM          1
 #define TEMP_TIMER_NUM          0
-#define PULSE_TIMER_NUM         TEMP_TIMER_NUM
-
-#define HAL_STEPPER_TIMER_RATE  HAL_TIMER_RATE
-#define HAL_TICKS_PER_US        ((HAL_STEPPER_TIMER_RATE) / 1000000) // Cannot be of type double
-#define STEPPER_TIMER_PRESCALE  8
-#define STEP_TIMER_MIN_INTERVAL 8 // minimum time in µs between stepper interrupts
+#define PULSE_TIMER_NUM         STEP_TIMER_NUM
 
 #define TEMP_TIMER_FREQUENCY    ((F_CPU) / 64.0 / 256.0)
 
-#define TIMER_OCR_1             OCR1A
-#define TIMER_COUNTER_1         TCNT1
+#define STEPPER_TIMER_RATE      HAL_TIMER_RATE
+#define STEPPER_TIMER_PRESCALE  8
+#define STEPPER_TIMER_TICKS_PER_US ((STEPPER_TIMER_RATE) / 1000000) // Cannot be of type double
 
-#define TIMER_OCR_0             OCR0A
-#define TIMER_COUNTER_0         TCNT0
-
-#define PULSE_TIMER_PRESCALE    8
+#define PULSE_TIMER_RATE       STEPPER_TIMER_RATE   // frequency of pulse timer
+#define PULSE_TIMER_PRESCALE   STEPPER_TIMER_PRESCALE
+#define PULSE_TIMER_TICKS_PER_US STEPPER_TIMER_TICKS_PER_US
 
 #define ENABLE_STEPPER_DRIVER_INTERRUPT()  SBI(TIMSK1, OCIE1A)
 #define DISABLE_STEPPER_DRIVER_INTERRUPT() CBI(TIMSK1, OCIE1A)
@@ -149,12 +146,44 @@ extern "C" {
 #define DISABLE_TEMPERATURE_INTERRUPT()    CBI(TIMSK0, OCIE0B)
 #define TEMPERATURE_ISR_ENABLED()         TEST(TIMSK0, OCIE0B)
 
-#define HAL_timer_start(timer_num, frequency)
+FORCE_INLINE void HAL_timer_start(const uint8_t timer_num, const uint32_t) {
+  switch (timer_num) {
+    case STEP_TIMER_NUM:
+      // waveform generation = 0100 = CTC
+      SET_WGM(1, CTC_OCRnA);
 
-#define _CAT(a, ...) a ## __VA_ARGS__
+      // output mode = 00 (disconnected)
+      SET_COMA(1, NORMAL);
+
+      // Set the timer pre-scaler
+      // Generally we use a divider of 8, resulting in a 2MHz timer
+      // frequency on a 16MHz MCU. If you are going to change this, be
+      // sure to regenerate speed_lookuptable.h with
+      // create_speed_lookuptable.py
+      SET_CS(1, PRESCALER_8);  //  CS 2 = 1/8 prescaler
+
+      // Init Stepper ISR to 122 Hz for quick starting
+      // (F_CPU) / (STEPPER_TIMER_PRESCALE) / frequency
+      OCR1A = 0x4000;
+      TCNT1 = 0;
+      break;
+
+    case TEMP_TIMER_NUM:
+      // Use timer0 for temperature measurement
+      // Interleave temperature interrupt with millies interrupt
+      OCR0B = 128;
+      break;
+  }
+}
+
+#define TIMER_OCR_1             OCR1A
+#define TIMER_COUNTER_1         TCNT1
+
+#define TIMER_OCR_0             OCR0A
+#define TIMER_COUNTER_0         TCNT0
+
+#define _CAT(a,V...) a##V
 #define HAL_timer_set_compare(timer, compare) (_CAT(TIMER_OCR_, timer) = compare)
-#define HAL_timer_restrain(timer, interval_ticks) NOLESS(_CAT(TIMER_OCR_, timer), _CAT(TIMER_COUNTER_, timer) + interval_ticks)
-
 #define HAL_timer_get_compare(timer) _CAT(TIMER_OCR_, timer)
 #define HAL_timer_get_count(timer) _CAT(TIMER_COUNTER_, timer)
 
@@ -168,10 +197,10 @@ extern "C" {
 #define HAL_timer_isr_epilogue(TIMER_NUM)
 
 /* 18 cycles maximum latency */
-#define HAL_STEP_TIMER_ISR \
-extern "C" void TIMER1_COMPA_vect (void) __attribute__ ((signal, naked, used, externally_visible)); \
-extern "C" void TIMER1_COMPA_vect_bottom (void) asm ("TIMER1_COMPA_vect_bottom") __attribute__ ((used, externally_visible, noinline)); \
-void TIMER1_COMPA_vect (void) { \
+#define HAL_STEP_TIMER_ISR() \
+extern "C" void TIMER1_COMPA_vect() __attribute__ ((signal, naked, used, externally_visible)); \
+extern "C" void TIMER1_COMPA_vect_bottom() asm ("TIMER1_COMPA_vect_bottom") __attribute__ ((used, externally_visible, noinline)); \
+void TIMER1_COMPA_vect() { \
   __asm__ __volatile__ ( \
     A("push r16")                      /* 2 Save R16 */ \
     A("in r16, __SREG__")              /* 1 Get SREG */ \
@@ -238,13 +267,13 @@ void TIMER1_COMPA_vect (void) { \
     : \
   ); \
 } \
-void TIMER1_COMPA_vect_bottom(void)
+void TIMER1_COMPA_vect_bottom()
 
 /* 14 cycles maximum latency */
-#define HAL_TEMP_TIMER_ISR \
-extern "C" void TIMER0_COMPB_vect (void) __attribute__ ((signal, naked, used, externally_visible)); \
-extern "C" void TIMER0_COMPB_vect_bottom(void)  asm ("TIMER0_COMPB_vect_bottom") __attribute__ ((used, externally_visible, noinline)); \
-void TIMER0_COMPB_vect (void) { \
+#define HAL_TEMP_TIMER_ISR() \
+extern "C" void TIMER0_COMPB_vect() __attribute__ ((signal, naked, used, externally_visible)); \
+extern "C" void TIMER0_COMPB_vect_bottom()  asm ("TIMER0_COMPB_vect_bottom") __attribute__ ((used, externally_visible, noinline)); \
+void TIMER0_COMPB_vect() { \
   __asm__ __volatile__ ( \
     A("push r16")                       /* 2 Save R16 */ \
     A("in r16, __SREG__")               /* 1 Get SREG */ \
@@ -304,7 +333,7 @@ void TIMER0_COMPB_vect (void) { \
     : \
   ); \
 } \
-void TIMER0_COMPB_vect_bottom(void)
+void TIMER0_COMPB_vect_bottom()
 
 // ADC
 #ifdef DIDR2
@@ -313,7 +342,7 @@ void TIMER0_COMPB_vect_bottom(void)
   #define HAL_ANALOG_SELECT(pin) do{ SBI(DIDR0, pin); }while(0)
 #endif
 
-inline void HAL_adc_init(void) {
+inline void HAL_adc_init() {
   ADCSRA = _BV(ADEN) | _BV(ADSC) | _BV(ADIF) | 0x07;
   DIDR0 = 0;
   #ifdef DIDR2
@@ -328,7 +357,8 @@ inline void HAL_adc_init(void) {
   #define HAL_START_ADC(pin) ADCSRB = 0; SET_ADMUX_ADCSRA(pin)
 #endif
 
-#define HAL_READ_ADC ADC
+#define HAL_READ_ADC()  ADC
+#define HAL_ADC_READY() !TEST(ADCSRA, ADSC)
 
 #define GET_PIN_MAP_PIN(index) index
 #define GET_PIN_MAP_INDEX(pin) pin
@@ -336,4 +366,28 @@ inline void HAL_adc_init(void) {
 
 #define HAL_SENSITIVE_PINS 0, 1
 
-#endif // _HAL_AVR_H_
+#ifdef __AVR_AT90USB1286__
+  #define JTAG_DISABLE() do{ MCUCR = 0x80; MCUCR = 0x80; }while(0)
+#endif
+
+// AVR compatibility
+#define strtof strtod
+
+/**
+ *  set_pwm_frequency
+ *  Sets the frequency of the timer corresponding to the provided pin
+ *  as close as possible to the provided desired frequency. Internally
+ *  calculates the required waveform generation mode, prescaler and
+ *  resolution values required and sets the timer registers accordingly.
+ *  NOTE that the frequency is applied to all pins on the timer (Ex OC3A, OC3B and OC3B)
+ *  NOTE that there are limitations, particularly if using TIMER2. (see Configuration_adv.h -> FAST FAN PWM Settings)
+ */
+void set_pwm_frequency(const pin_t pin, int f_desired);
+
+/**
+ * set_pwm_duty
+ *  Sets the PWM duty cycle of the provided pin to the provided value
+ *  Optionally allows inverting the duty cycle [default = false]
+ *  Optionally allows changing the maximum size of the provided value to enable finer PWM duty control [default = 255]
+ */
+void set_pwm_duty(const pin_t pin, const uint16_t v, const uint16_t v_size=255, const bool invert=false);
